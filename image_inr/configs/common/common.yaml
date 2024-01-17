@@ -1,0 +1,3 @@
+debug: False # Use debug mode
+seed: -1 # Random seed
+verbose: False # Whether to print verbose logs or not

@@ -1,0 +1,32 @@
+#override /checkpoint/logdir: 'output/temp/${opt:hydra.job.num, ""}/'
+
+defaults:
+  - _self_
+  - trainer: trainer #will obtain trainer/trainer.yaml  
+  - network: ffn 
+  - trainer/lottery
+  - trainer/optimizer
+  - trainer/losses
+  - data/dataset
+  - logging/checkpoint
+  - logging/wandb
+  - common/common
+  - experiment: default
+
+
+hydra:
+  run:
+    #dir: ${logging.logdir}
+    dir: ${logging.checkpoint.logdir}
+
+  output_subdir: hydra
+
+
+# inference:
+#   test_prompts: False
+#   text_prompt: 'photo of apple pop art' 
+#   random_latent: False #start from a random latent and optimize. 
+#   source_latent: False #start from a source latent and optimize.
+#   eval_dataloader: False
+
+

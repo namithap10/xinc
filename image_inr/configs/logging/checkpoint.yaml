@@ -1,0 +1,9 @@
+checkpoint:
+  logdir: 'output/temp/' # Path to save logs
+  resume: ${...trainer.resume} # Whether to resume from latest ckpt if available # 3 dots. first to come out of checkpoint, rest to go to root. 
+  skip_save: False # Whether to skip saving predicted examples. 
+  skip_save_model: False # Whether to skip saving model. Not recommended unless sweep.
+  save_example: 10
+  save_every: ${...trainer.eval_every}
+
+  reset_epoch: #used in nirvana trainers.

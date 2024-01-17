@@ -1,0 +1,10 @@
+losses:
+  main_loss: 'mse' # Main loss function to use 
+  loss_list: ['mse']
+  loss_weights: [1,0.001] 
+  face_loss: False #use face loss instead of lpips
+  clip_loss: False #clip loss bet generated image and prompt text. 
+
+  beta_anneal: False # Whether to anneal beta or not
+  final_beta: 1.0 # Final beta value
+  beta_warmup: 500 #apply constant small bete for first n iterations.

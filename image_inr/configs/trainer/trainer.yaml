@@ -1,0 +1,29 @@
+batch_size: 1
+min_psnr:  # Minimum PSNR to run for a model. If none, use iters
+max_iters:  # Maximum number of iterations to run even when min PSNR is not met
+num_iters: 1000
+num_iters_first:
+resume: False # Whether to resume from latest ckpt if available
+eval_every: 50 # Evaluate every n epochs
+quant_eval: True
+max_frames: # Maximum number of frames to use. Defaults to all frames
+modulate: False # Whether to modulate the latent vector or not
+
+lr: 9.0e-4 # Learning rate
+
+lr_reduce: False # Whether to reduce learning rate on plateau or not.
+lr_factor: 0.05 # Factor to reduce learning rate by
+lr_patience: 100 # Patience iterations for learning rate scheduler
+lr_min: 2e-4 # Minimum learning rate
+
+eval_only: False # Whether to only evaluate the model or not
+verbose: False # Whether to print verbose logs or not
+distributed: False
+viz: False # Whether to visualize the Umap and tsne plots or not
+progressive_training: False # Whether to use progressive training or not.
+debug: False # Whether to use debug mode or not
+num_workers: 16
+strategy: 'ddp' #have to use this as there are unused params due to hypernet
+devices: 'auto'
+trainer_style: 'normal' #normal or nirvana style.
+
