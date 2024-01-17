@@ -1,0 +1,9 @@
+# TODO: Write this config. 
+layers:  # Layer to use for hypernet. Defaults to all layers. 
+num_layers: 1 # num layers for hypernet. Defaults to 1
+hidden_dim: 64 # hidden dim for hypernet. Defaults to 64
+type: 'transformer'
+output_type: 'weights' #weights,soft_mask,low_rank
+nl: 'leakyrelu'
+mask_rank: 10 #if soft_mask, rank of the predictions.
+mask_act: 'demod' #demod,tanh,sigmoid.

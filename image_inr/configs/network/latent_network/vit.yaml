@@ -1,0 +1,9 @@
+type: 'vit' #vit,cnn,resnet
+layers: 6 # Layer to use for latent network. Depth if using vit.
+heads: 4 # Number of heads for vit
+mlp_dim: 512 # MLP dimension for vit
+patch_size: 4
+random_latent: False #just use a random latent. 
+use_clip: False # Whether to use CLIP embeddings along with latent. 
+vae_mode: False  
+spatial_latent: False
