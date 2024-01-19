@@ -66,5 +66,5 @@ If you find our work useful, please consider citing:
     eprint={2401.10217},
     archivePrefix={arXiv},
     primaryClass={cs.CV}
-    }
+}
 ```
