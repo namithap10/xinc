@@ -1,11 +1,8 @@
+import math
+
 import numpy as np
-import math 
-
-import torch 
+import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torchvision
-
 
 
 def normalize_coordinates(coordinates,img):
@@ -18,10 +15,7 @@ def normalize_coordinates(coordinates,img):
 		C,H,W = img.shape
 	else:
 		N,C,H,W = img.shape
-	# if self.args.coord_separate_norm:
-	# 	coordinates[:,0] = coordinates[:,0] / (H-1) - 0.5
-	# 	coordinates[:,1] = coordinates[:,1] / (W-1) - 0.5
-	# else:
+ 
 	coordinates = coordinates / (max(H,W) - 1) - 0.5		
 	coordinates *= 2
 	return coordinates
@@ -90,8 +84,6 @@ class PosEncodingNeRF(nn.Module):
 		else:
 			in_features = self.in_features
 
-		#removes for loop over sine and cosine.
-		#bad, but optimal code. lifted from https://github.com/nexuslrf/CoordX/blob/main/modules.py
 		coords_pos_enc = coords.unsqueeze(-2) * self.freq_bands.reshape([1]*(len(coords.shape)-1) + [-1, 1]) #2*pi*coord
 		sin = torch.sin(coords_pos_enc)
 		cos = torch.cos(coords_pos_enc)
@@ -119,49 +111,6 @@ def to_coordinates_and_features(data):
 	return coordinates, features
 
 
-
-class GaussianFourierFeatureTransform(torch.nn.Module):
-	"""
-	An implementation of Gaussian Fourier feature mapping.
-
-	"Fourier Features Let Networks Learn High Frequency Functions in Low Dimensional Domains":
-	   https://arxiv.org/abs/2006.10739
-	   https://people.eecs.berkeley.edu/~bmild/fourfeat/index.html
-
-	Given an input of size [batches, num_input_channels, width, height],
-	 returns a tensor of size [batches, mapping_size*2, width, height].
-	"""
-
-	def __init__(self, num_input_channels, mapping_size=256, scale=10):
-		super().__init__()
-
-		self._num_input_channels = num_input_channels
-		self._mapping_size = mapping_size
-		self._B = torch.randn((num_input_channels, mapping_size)) * scale
-
-	def forward(self, x):
-		assert x.dim() == 4, 'Expected 4D input (got {}D input)'.format(x.dim())
-
-		batches, channels, width, height = x.shape
-
-		assert channels == self._num_input_channels,\
-			"Expected input to have {} channels (got {} channels)".format(self._num_input_channels, channels)
-
-		# Make shape compatible for matmul with _B.
-		# From [B, C, W, H] to [(B*W*H), C].
-		x = x.permute(0, 2, 3, 1).reshape(batches * width * height, channels)
-
-		x = x @ self._B.to(x.device)
-
-		# From [(B*W*H), C] to [B, W, H, C]
-		x = x.view(batches, width, height, self._mapping_size)
-		# From [B, W, H, C] to [B, C, W, H]
-		x = x.permute(0, 3, 1, 2)
-
-		x = 2 * np.pi * x
-		return torch.cat([torch.sin(x), torch.cos(x)], dim=1)
-
-
 def get_activation(activation):
 	
 	if (activation == 'none') or (activation == 'linear') or (activation is None):
@@ -177,33 +126,3 @@ def get_activation(activation):
 		return nn.Sigmoid()
 	else:
 		raise ValueError('Unknown activation function {}'.format(activation))
-
-
-class AdaIN(nn.Module):
-	def __init__(self):
-		super().__init__()
-
-	def mu(self, x):
-		""" Takes a (n,c,h,w) tensor as input and returns the average across
-		it's spatial dimensions as (h,w) tensor [See eq. 5 of paper]"""
-		return torch.sum(x,(2,3))/(x.shape[2]*x.shape[3])
-
-	def sigma(self, x):
-		""" Takes a (n,c,h,w) tensor as input and returns the standard deviation
-		across it's spatial dimensions as (h,w) tensor [See eq. 6 of paper] Note
-		the permutations are required for broadcasting"""
-		return torch.sqrt((torch.sum((x.permute([2,3,0,1])-self.mu(x)).permute([2,3,0,1])**2,(2,3))+0.000000023)/(x.shape[2]*x.shape[3]))
-
-	def forward(self,feature,target_mu,target_sigma):
-		"""
-			Feature is (N,C,H,W)
-		"""
-		
-		feature_mu = self.mu(feature)
-		feature_sigma = self.sigma(feature)
-		
-		#print(target_mu.shape,target_sigma.shape,feature_mu.shape,feature_sigma.shape)
-
-		return (target_sigma*((feature.permute([2,3,0,1])-feature_mu)/feature_sigma) + target_mu).permute([2,3,0,1])
-
-

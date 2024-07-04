@@ -10,19 +10,11 @@ activation: 'relu'
 use_bias: True
 
 pos_encoding:
-  type: 'fourier' #[fourier, hash_grid, nerf] defaults to nerf.
+  type: 'fourier' #[fourier, nerf] defaults to nerf.
   num_frequencies: #Num frequencies to encode using pos encoding. If None, we use Nyquist formula to calculate.
 
   #fourier encoding
   fourier_mapping_size: '${..layer_size}' #will equal layer_size
-  fourier_noise_scale: 10.0 #scale to multiply gaussian noise for fourier mapping. 10 performs best when lr is 1e-3
-
-  hash_grid_encoding: #enabled only if type is hash_grid
-    binarize: False
-    n_levels: 16
-    n_features_per_level: 2
-    log2_hashmap_size: 15
-    base_resolution: 16
-    finest_resolution: 512
+  fourier_noise_scale: 10.0 #scale to multiply gaussian noise for fourier mapping.
 
 sidelength: #Max length of the image. updated in code

@@ -1,17 +1,16 @@
-from email.policy import default
-import torch
-import torch.distributed as dist
+from collections import defaultdict
+from enum import Enum
+
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd 
-from enum import Enum
-from collections import defaultdict
+import torch
+import torch.distributed as dist
 
 from . import helper
 
+
 class Metric():
     def __init__(self):
-        #keys=['fp_psnr','encoding_time','quantized_psnr','storage_optimize_time']
         self.results = defaultdict(dict)
 
     def add_metric(self,metric_name,summary_type):
@@ -136,7 +135,6 @@ class AverageMeter(object):
         print(fmtstr.format(**self.__dict__))
 
         return val
-        #return fmtstr.format(**self.__dict__)
 
 
 class quant_bit_tracker():
@@ -183,7 +181,7 @@ class quant_bit_tracker():
         dist.all_reduce(self.comp_size, dist.ReduceOp.SUM, async_op=False)
         dist.all_reduce(self.psnr_mean, dist.ReduceOp.SUM, async_op=False)
 
-        #Mean acrtoss all workers, for each q_bit.
+        #Mean across all workers, for each q_bit.
         self.psnr_mean = (self.psnr_mean / self.world_size).tolist()
 
         #No average for this. We need total.

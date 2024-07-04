@@ -1,10 +1,10 @@
-import torch 
-import torch.nn as nn
+import easydict
 import numpy as np
-import math
-from . import model_utils
+import torch
+import torch.nn as nn
 from models import BaseModel
 
+from . import model_utils
 
 
 class MLPLayer(nn.Module):
@@ -88,8 +88,6 @@ class ffn(BaseModel):
     
 
 if __name__ == '__main__':
-    import easydict,time 
-
 
     #test fourier features. 
     args = easydict.EasyDict({'network':{'layer_size':512,'num_layers':5,'w0':30.0,'w0_initial':30.0,'final_act':None,\

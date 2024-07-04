@@ -187,7 +187,6 @@ class MaskedVideoDataSet(Dataset):
             img_id = self.image_ids[idx]
             # Load instance annotations for the image
             ann_ids = self.coco.getAnnIds(imgIds=img_id)
-            # cur_ann_ids = [ann_id for ann_id in ann_ids if ann_id in self.instances_to_merge]
             image_annotations = self.coco.loadAnns(ann_ids)
             # Filter above annotations to get ones relevant for self.instances_to_merge
             annotations = []
@@ -313,10 +312,8 @@ class VideoDataSet(Dataset):
             img_lab = rgb_to_lab(tensor_image.unsqueeze(0)).squeeze(0)
 
             # Normalize the LAB channels
-            # print(f"min pre norm: {img_lab[:, 0].min(), img_lab[:, 1].min(), img_lab[:, 2].min()}, max pre norm: {img_lab[:, 0].max(), img_lab[:, 1].max(), img_lab[:, 2].max()}")
-            img_lab[0] = img_lab[0] / 100.0  # Normalize L channel
-            img_lab[1:] = (img_lab[1:] + 128.0) / 255.0  # Normalize A and B channels
-            # print(f"min post norm: {img_lab[:, 0].min(), img_lab[:, 1].min(), img_lab[:, 2].min()}, max pre norm: {img_lab[:, 0].max(), img_lab[:, 1].max(), img_lab[:, 2].max()}")
+            img_lab[0] = img_lab[0] / 100.0
+            img_lab[1:] = (img_lab[1:] + 128.0) / 255.0
             
             assert img_lab.min() >= -0.2 and img_lab.max() <= 1.1
             sample["img_lab"] = img_lab

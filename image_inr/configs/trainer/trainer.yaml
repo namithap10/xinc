@@ -23,7 +23,7 @@ viz: False # Whether to visualize the Umap and tsne plots or not
 progressive_training: False # Whether to use progressive training or not.
 debug: False # Whether to use debug mode or not
 num_workers: 16
-strategy: 'ddp' #have to use this as there are unused params due to hypernet
+strategy: 'ddp'
 devices: 'auto'
-trainer_style: 'normal' #normal or nirvana style.
+trainer_style: 'normal'
 

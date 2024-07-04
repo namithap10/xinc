@@ -1,0 +1,114 @@
+trainer:
+  batch_size: 1
+  min_psnr: null
+  max_iters: null
+  num_iters: 1000
+  num_iters_first: 1000
+  resume: false
+  eval_every: 250
+  quant_eval: true
+  max_frames: null
+  modulate: false
+  lr: 0.0009
+  lr_reduce: false
+  lr_factor: 0.05
+  lr_patience: 100
+  lr_min: 0.0002
+  eval_only: false
+  verbose: false
+  distributed: false
+  viz: false
+  progressive_training: false
+  debug: false
+  num_workers: 16
+  strategy: ddp
+  devices: auto
+  trainer_style: normal
+  lottery:
+    enabled: false
+    keep_percentage: 0.5
+    num_rounds: 1
+    late_reset_epoch: 0
+  optimizer:
+    type: adam
+    betas:
+    - 0.9
+    - 0.999
+    eps: 1.0e-08
+    weight_decay: 0.0
+  losses:
+    main_loss: mse
+    loss_list:
+    - mse
+    loss_weights:
+    - 1
+    - 0.001
+    face_loss: false
+    beta_anneal: false
+    final_beta: 1.0
+    beta_warmup: 500
+network:
+  model_name: ffn
+  batch_size: ${..trainer.batch_size}
+  layer_size: 104
+  num_layers: 3
+  dim_in: 2
+  dim_out: 3
+  final_act: null
+  w0: 30.0
+  w0_initial: 30.0
+  activation: relu
+  use_bias: true
+  pos_encoding:
+    type: fourier
+    num_frequencies: null
+    fourier_mapping_size: ${..layer_size}
+    fourier_noise_scale: 10.0
+    hash_grid_encoding:
+      binarize: false
+      n_levels: 16
+      n_features_per_level: 2
+      log2_hashmap_size: 15
+      base_resolution: 16
+      finest_resolution: 512
+  sidelength: 256
+data:
+  dim_in: 2
+  dim_out: 3
+  data_path: ../data/cityscapes_vps/val/img_all/frankfurt_000000_001736_leftImg8bit.png
+  eval_path: null
+  crop: null
+  coord_normalize_range:
+  - -1
+  - 1
+  patch_shape: null
+  rep_pad: false
+  coord_separate_norm: false
+  coord_split: false
+  dct: false
+  coord_grid_mapping: false
+  data_range:
+  - 0
+  - 1
+  data_shape:
+  - 128
+  - 256
+  num_frames: null
+  shuffle: true
+  ignore_pos_matrix: false
+  init_path: null
+logging:
+  checkpoint:
+    logdir: output/Cityscapes_VPS_models/0005/0005_framenum_0_128_256
+    resume: ${...trainer.resume}
+    skip_save: false
+    skip_save_model: false
+    save_example: 10
+    save_every: ${...trainer.eval_every}
+    reset_epoch: null
+  wandb:
+    enabled: false
+common:
+  debug: false
+  seed: 7980
+  verbose: false

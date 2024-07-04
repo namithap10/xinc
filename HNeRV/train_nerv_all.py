@@ -74,7 +74,7 @@ def main():
     parser.add_argument('--quant_model_bit', type=int, default=8, help='bit length for model quantization')
     parser.add_argument('--quant_embed_bit', type=int, default=6, help='bit length for embedding quantization')
     parser.add_argument('--quant_axis', type=int, default=0, help='quantization axis (-1 means per tensor)')
-    parser.add_argument('--dump_images', action='store_true', default=False, help='dump the prediction images')
+    parser.add_argument('--dump_images', action='store_true', default=False, help='Save theprediction images')
     parser.add_argument('--dump_videos', action='store_true', default=False, help='concat the prediction images into video')
     parser.add_argument('--eval_fps', action='store_true', default=False, help='fwd multiple times to test the fps ')
     parser.add_argument('--encoder_file',  default='', type=str, help='specify the embedding file')
@@ -178,7 +178,7 @@ def train(local_rank, args):
 
     # setup dataloader    
     if args.masked_loss or args.weighted_loss or args.alter_bg_for_eval:
-        # If we want to alter BG for vanilla NeRV, we need the masked video dataset 
+        # If we want to alter background for vanilla NeRV, we need the masked video dataset 
         args.instances_to_merge = ['car_22', 'car_23', 'chalk-line_8', 'chalk-line_9', 'house_15', 'house_16', 'house_17', 'house_18', 'net_14', 
                             'person_24', 'person_25', 'person_26', 'person_27', 'person_28', 'pole_10', 'pole_11', 'pole_12', 
                             'pole_13', 'shoe_3', 'shoe_4', 'shoe_5', 'shoe_6', 'shoe_7', 'tennis-racket_20', 'tennis-racket_21']
@@ -320,7 +320,6 @@ def train(local_rank, args):
             if args.masked_loss or args.weighted_loss:
                 mask = sample['mask']
                 foreground_mask = data_to_gpu(mask, device).unsqueeze(1)
-                # Repeat foreground_mask 3 times along channel dimension
                 foreground_mask = foreground_mask.repeat(1, 3, 1, 1)
 
             if i > 10 and args.debug:
@@ -332,7 +331,7 @@ def train(local_rank, args):
                 cur_input = norm_idx if 'pe' in args.embed else img_data
             else:
                 img_lab = data_to_gpu(sample["img_lab"], device)
-                # img_gt will still be used for computing PSNR so don't overwrite it
+                # img_gt will still be used for computing PSNR, do not overwrite it
                 img_lab, img_gt_lab = img_lab, img_lab
                 cur_input = norm_idx if 'pe' in args.embed else img_lab
                 # img_data is used for dumping predictions in evaluate()
@@ -359,12 +358,11 @@ def train(local_rank, args):
             if args.use_lab:
                 # Model output will be in LAB form and needs to be unnormalized
                 # and converted to RGB to compute PSNR
-                # img_out is B x 3 (LAB) x H x W
-                img_out[:, 0, :, :] = img_out[:, 0, :, :] * 100.0 # Denormalize the L channel
-                img_out[:, 1:, :, :] = img_out[:, 1:, :, :] * 255.0 - 128.0 # Denormalize the AB channels
+                img_out[:, 0, :, :] = img_out[:, 0, :, :] * 100.0
+                img_out[:, 1:, :, :] = img_out[:, 1:, :, :] * 255.0 - 128.0
                 img_out = lab_to_rgb(img_out)
 
-            # Use args.alter_bg_for_eval to decide whether to copy
+            # Use args.alter_bg_for_eval to choose whether to copy
             # background from img_gt to img_out or make BG 0s or leave unchanged.
             if args.alter_bg_for_eval == 'copy':
                 img_out = img_out * foreground_mask + img_gt * ~foreground_mask
@@ -500,8 +498,8 @@ def evaluate(model, full_dataloader, local_rank, args,
             if args.use_lab:
                 # Model output will be in LAB form, hence needs to be unnormalized
                 # and converted to RGB to compute PSNR
-                img_out[:, 0, :, :] = img_out[:, 0, :, :] * 100.0 # Denormalize the L channel
-                img_out[:, 1:, :, :] = img_out[:, 1:, :, :] * 255.0 - 128.0 # Denormalize the AB channels
+                img_out[:, 0, :, :] = img_out[:, 0, :, :] * 100.0
+                img_out[:, 1:, :, :] = img_out[:, 1:, :, :] * 255.0 - 128.0
                 img_out = lab_to_rgb(img_out)
                 
             
@@ -537,7 +535,7 @@ def evaluate(model, full_dataloader, local_rank, args,
                     full_ind = i * args.batchSize + batch_ind
                     dump_img_list = [img_data[batch_ind], img_out[batch_ind]]
                     temp_psnr_list = ','.join([str(round(x[batch_ind].item(), 2)) for x in pred_psnr])
-                    concat_img = torch.cat(dump_img_list, dim=2)    #img_out[batch_ind], 
+                    concat_img = torch.cat(dump_img_list, dim=2)
                     save_image(concat_img, f'{visual_dir}/pred_{full_ind:04d}_{temp_psnr_list}.png')
 
             # print eval results and add to log txt

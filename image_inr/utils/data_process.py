@@ -1,15 +1,9 @@
-import imp
-from sys import breakpointhook
-from xml.sax.handler import feature_namespace_prefixes
 import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
-
-import numpy as np
 from einops import rearrange
 
-from . import patching,dct
-
+from . import patching
 
 
 class DataProcessor(object):
@@ -17,7 +11,6 @@ class DataProcessor(object):
 		self.cfg_dataset = cfg_dataset
 		self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-		# TODO Add support for fp16 and autocast. 
 		self.dtype = torch.float32
 
 	def process_inputs(self,data,return_coord=True):
@@ -63,7 +56,6 @@ class DataProcessor(object):
 	def process_outputs(self,out,input_img_shape,features_shape=None,patch_shape=None,group_size=None):
 		
 		"""
-			For all DCT transorms, unpatch -> inv_dct -> unpad -> crop
 			For all RGB transforms, unpatch -> unpad -> crop
 
 			Input_img_shape is NCHW. 
@@ -78,16 +70,11 @@ class DataProcessor(object):
 			N,C,H,W = input_img_shape
 
 
-		if patch_shape is not None:
-			
-			#patch_shape = (self.cfg_dataset.block_size,self.cfg_dataset.block_size)			
+		if patch_shape is not None:	
 			
 			patcher = patching.Patcher(patch_shape)
 			out_reshape = patcher.unpatch(out,features_shape)
 
-			if self.cfg.dataset.dct:
-				out_reshape = dct.batch_idct(out_reshape.unsqueeze(0),device=out_reshape.device,block_size=self.cfg_dataset.block_size)#.squeeze()
-		
 		elif self.cfg_dataset.coord_grid_mapping:
 			return out #already nchw.
 
@@ -203,7 +190,6 @@ class DataProcessor(object):
 		T,C,H,W = data_shape
 
 		if patch_shape is not None:
-			#pad before DCT when patching.
 			if type(patch_shape) == int:
 				patch_shape = (patch_shape,patch_shape)
 		
@@ -286,13 +272,9 @@ class DataProcessor(object):
 
 
 		if patch_shape is not None:
-			#pad before DCT when patching.
 			if type(patch_shape) == int:
 				patch_shape = (patch_shape,patch_shape)
 			data = self.pad_input(data,block_size = patch_shape[-1]).squeeze()
-
-		if self.cfg_dataset.dct:
-			data = dct.batch_dct(data.unsqueeze(0),device=data.device).squeeze(0)
 
 
 		#final processing 
@@ -319,16 +301,12 @@ class DataProcessor(object):
 		data_shape = data.shape
 
 		if patch_shape is not None:
-			#pad before DCT when patching.
 			if type(patch_shape) == int:
 				patch_shape = (patch_shape,patch_shape)
 
 			data = self.pad_input3D(data,(patch_shape[0],patch_shape[1],batch_size))
 			data_shape = data.shape #might change when patching.
 			self.padded_H, self.padded_W, self.padded_T = data.shape[2], data.shape[3], data.shape[0]
-		
-		if self.cfg_dataset.dct:
-			data = dct.batch_dct(data,device=data.device).squeeze(0)
 
 		if patch_shape is not None:
 			features = rearrange(data, '(nt pt) c (nh ph) (nw pw) -> (nt nh nw) c ph pw pt', pt=batch_size, ph = patch_shape[0], pw = patch_shape[1])
@@ -349,7 +327,6 @@ class DataProcessor(object):
 		N,C,H,W = data.shape
 
 		if patch_shape is not None:
-			#pad before DCT when patching.
 			if type(patch_shape) == int:
 				patch_shape = (patch_shape,patch_shape)
 
@@ -361,10 +338,9 @@ class DataProcessor(object):
 			features = rearrange(data, '(nt pt) c (nh ph) (nw pw) -> (nt nh nw) c ph pw pt', pt=batch_size, ph = patch_shape[0], pw = patch_shape[1])
 			nt, nh, nw = data.size(0)//batch_size, data.size(2)//patch_shape[0], data.size(3)//patch_shape[1]
 		else:
-			breakpoint()
 			features = rearrange(data, 'n c h w -> (n h w) c')
 			nt, nh, nw = data.size(0)//batch_size, data.size(2), data.size(3)
-		#nt, nh, nw = data.size(0)//batch_size, data.size(2)//patch_shape[0], data.size(3)//patch_shape[1]
+
 		t,h,w = torch.meshgrid(torch.arange(nt),torch.arange(nh),torch.arange(nw))
 		coordinates = torch.cat((h.reshape(-1,1), w.reshape(-1,1), t.reshape(-1,1)),dim=1).float() # hwt
 		coordinates /= torch.Tensor([nh,nw,nt]).reshape(1,-1)
@@ -383,9 +359,6 @@ class DataProcessor(object):
 		C,H,W = data.shape
 
 		if (patch_shape is not None) and (split == True): raise("Split and patches cannot be together")
-
-		if self.cfg_dataset.dct:
-			data = dct.batch_dct(data.unsqueeze(0),device=data.device).squeeze(0)
 
 		if patch_shape is not None:
 			patcher = patching.Patcher(patch_shape)
@@ -407,7 +380,6 @@ class DataProcessor(object):
 			coord_y = torch.linspace(0,W-1,W)
 			coordinates = torch.stack(torch.meshgrid(coord_x,coord_y),dim=-1).permute(2,0,1).unsqueeze(0)
 			data_shape = data.shape
-			#normalization later.
 
 		else:
 			coordinates = torch.ones(data.shape[1:]).nonzero(as_tuple=False).float()
@@ -426,7 +398,7 @@ class DataProcessor(object):
 			coordinates = [coord_x,coord_y]
 			
 		else:
-			coordinates = self.normalize_coordinates(coordinates,data) #normalize coordinates.
+			coordinates = self.normalize_coordinates(coordinates,data)
 
 		if not self.cfg_dataset.coord_grid_mapping:
 			# Convert image to a tensor of features of shape (num_points, channels)
@@ -435,19 +407,3 @@ class DataProcessor(object):
 			features = data.unsqueeze(0)
 
 		return coordinates, features,data_shape
-	
-
-
-if __name__ == '__main__':
-
-
-	def load_img():
-		import cv2 
-		img = cv2.imread('../../frequency_stuff/vid_inr/frames/bosphore_1080/f00001.png')
-		img = img / 255.0
-		img = torch.tensor(img).permute(2,0,1).float().to('cuda')
-		img = img.unsqueeze(0)
-		return img
-
-	from easydict import EasyDict as edict
-

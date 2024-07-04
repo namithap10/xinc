@@ -1,15 +1,11 @@
-from builtins import breakpoint
-import imp
 import numpy as np
-from utils.state_tools import StateDictOperator
-from zmq import device
 import torch
 import torch.nn as nn
 import torch.distributed as dist
 from torch._C import dtype
 from typing import Dict
 
-from . import dct,patching
+from . import patching
 
 import torchvision.transforms as transforms
 
@@ -17,17 +13,12 @@ import json,os,pickle
 import cv2
 from PIL import Image
 import glob 
-import av
-import av.datasets
 import math
-import matplotlib.pyplot as plt
-import random,sys
+import sys
 import importlib
-from omegaconf import DictConfig,OmegaConf
-from dahuffman import HuffmanCodec
+from omegaconf import DictConfig
 from pytorch_msssim import ssim
 import compress_pickle
-import clip
 
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="torch")
@@ -104,23 +95,6 @@ def quantize_per_tensor(t, bit=8, axis=-1):
     return quant_t, scale,t_min
 
 
-class CustomParallelWrapper(nn.Module):
-    def __init__(self, module, device_ids):
-        super().__init__()
-        self.module = module
-        self.device_ids = device_ids
-
-    def forward(self, input1, input2,z=None):
-        replicas = nn.parallel.replicate(self.module, self.device_ids)
-        inputs2 = nn.parallel.scatter(input2, self.device_ids)
-        # manually broadcast input1 to all devices
-        inputs1 = [input1.to(device) for device in self.device_ids]
-        inputs = list(zip(inputs1, inputs2))
-        outputs = nn.parallel.parallel_apply(replicas, inputs)
-
-        return nn.parallel.gather(outputs, self.device_ids[0])
-
-
 
 def all_gather(tensors):
     """
@@ -144,7 +118,6 @@ def all_gather(tensors):
 
     for gathered_tensor in gather_list:
         output_tensor.append(torch.cat(gathered_tensor, dim=0))
-        #output_tensor.append(torch.stack(gathered_tensor, dim=0))
 
     return output_tensor
 
@@ -171,19 +144,14 @@ def get_features_coord(img,args):
     
     """
         Patch shape and features shape will be the same for all images in a video. 
-        Also either dct_patches or rgb_patches should be true.
     """
     #patch size is same as block size
     patch_shape = (args.block_size,args.block_size)
 
     #these features are nchw hw =  patch size. 
 
-    if args.dct_patches:
-        coordinates,features,features_shape = to_coordinates_and_features_patches_DCT(img,patch_shape=patch_shape,block_size=args.block_size,pad=True)
-    elif args.rgb_patches: 
+    if args.rgb_patches: 
         coordinates,features,features_shape = to_coordinates_and_features_patches(img,patch_shape=patch_shape) 
-    elif args.dct:
-        coordinates,features,features_shape = to_coordinates_and_features_DCT(img,patch_shape=patch_shape,block_size=args.block_size,pad=True)
     else:
         coordinates,features,features_shape = to_coordinates_and_features(img,patch_shape=patch_shape)
 
@@ -308,24 +276,20 @@ def add_noise(frame,noise_type,gauss_std=0.1,noise_amp=1,noise_amount=int(1e4)):
 
         elif noise_type == 'gaussian':
             noise_val = np.random.normal(0, gauss_std, (noise_amount, 3)) * noise_amp
-            #frame[:,random_noise_y, random_noise_x] += torch.from_numpy(noise_val).float().T
             frame[i,:,random_noise_y, random_noise_x] += torch.from_numpy(noise_val).float().T.to(frame.device)
 
         elif noise_type =='random':
             noise_val = (np.random.rand(noise_amount, 3) * 2 - 1) * noise_amp
-            #frame[:,random_noise_y, random_noise_x] += torch.from_numpy(noise_val).float().T
             frame[i,:,random_noise_y, random_noise_x] += torch.from_numpy(noise_val).float().T.to(frame.device)
 
         frame[i].clamp_(0,1)
     
     return frame
 
-#dct_patches=False,rgb_patches=False,rgb_patch_volume=False,dct=False):
 def process_outputs(out,features_shape,input_img_shape,patch_shape=None,**kwargs): 
   
         
     """
-        For all DCT transorms, unpatch -> inv_dct -> unpad -> crop
         For all RGB transforms, unpatch -> unpad -> crop
 
         Input_img_shape is NCHW. 
@@ -335,7 +299,7 @@ def process_outputs(out,features_shape,input_img_shape,patch_shape=None,**kwargs
     N,C,H,W = input_img_shape
 
     
-    if kwargs['type'] == 'dct_patches' or kwargs['type'] == 'rgb_patches':
+    if kwargs['type'] == 'rgb_patches':
         patcher = patching.Patcher(patch_shape)
         out_reshape = patcher.unpatch(out,features_shape)
     
@@ -348,10 +312,6 @@ def process_outputs(out,features_shape,input_img_shape,patch_shape=None,**kwargs
     else:
         N,C,H,W = features_shape #N=1
         out_reshape = out.reshape(H,W,C).permute(2,0,1)
-
-    #if dct or dct_patches:											
-    if 'dct' in kwargs or 'dct_patches' in kwargs:
-        out_reshape = dct.batch_idct(out_reshape.unsqueeze(0),device=out_reshape.device,block_size=patch_shape[0])
 
     #unpad wont hurt even if there is no padding
     out_reshape = unpad(out_reshape,(H,W))
@@ -437,7 +397,6 @@ def save_videos(filename='video.avi',image_list = None,img_folder=None,**kwargs)
 
     for img_file in image_list:
         img = cv2.imread(img_file)
-        #img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
         out.write(img)
 
     out.release()
@@ -524,36 +483,6 @@ def to_coordinates_and_features(img,ch_norm=False):
     return coordinates, features
 
 
-def to_coord_patch_grid(img,patch_shape):
-    """
-        Converts an image to a set of patches (their centroids) and corersponding GRID features.
-        We return features with shape : HxW
-
-        Here we process the coordinates as meshgrid. So it has 2 channels. 
-
-    """
-
-    #coords = np.linspace(0, 1, img.shape[2], endpoint=False)
-    x_coords = np.linspace(0, 1, img.shape[1], endpoint=False)
-    y_coords = np.linspace(0, 1, img.shape[2], endpoint=False)
-
-    x_grid,y_grid = np.meshgrid(x_coords,y_coords)
-    xy_grid = np.stack([x_grid,y_grid], -1)
-    xy_grid = torch.tensor(xy_grid).unsqueeze(0).permute(0, 3, 1, 2).float().contiguous()#@.to(device)
-
-    patcher = patching.Patcher(patch_shape)
-    temp = xy_grid.clone() * 0
-    patched_grid,shape = patcher.patch(temp.squeeze(0))
-
-    for k in range(len(patched_grid)):
-        patched_grid[k][0][patch_shape[0]//2,patch_shape[1]//2] = 1
-        patched_grid[k][1][patch_shape[0]//2,patch_shape[1]//2] = 1
-
-
-    unpatched_grid =  patcher.unpatch(patched_grid,shape).squeeze()
-    coordinates = unpatched_grid.nonzero(as_tuple=False).float()
-
-
 
 def pad_input(img,block_size):
     """
@@ -600,20 +529,6 @@ def unpad(img,out_shape):
     unpadded_tensor = transforms.CenterCrop(out_shape)(img)
     return unpadded_tensor
 
-def optimizer_to(optim, device):
-    for param in optim.state.values():
-        if isinstance(param, torch.Tensor):
-            param.data = param.data.to(device)
-            if param._grad is not None:
-                param._grad.data = param._grad.data.to(device)
-
-        elif isinstance(param, dict):
-            for subparam in param.values():
-                if isinstance(subparam, torch.Tensor):
-                    subparam.data = subparam.data.to(device)
-                    if subparam._grad is not None:
-                        subparam._grad.data = subparam._grad.data.to(device)
-
 
 def to_coordinates_and_features_patches(img,patch_shape,centroid=True):
     """
@@ -646,85 +561,6 @@ def to_coordinates_and_features_patches(img,patch_shape,centroid=True):
     # Convert image to a tensor of features of shape (num_points, channels)
     return coordinates, patched,data_shape
 
-
-def to_coordinates_and_features_patches_DCT(img,patch_shape,block_size=None,pad=True,centroid=True):
-    """
-        Converts an image to a set of patches (their centroids) and corresponding features.
-
-        Returns:
-            coordinates (torch.Tensor): Shape (num_points, 2).
-            features (torch.Tensor): Shape (num_points, channels).
-            shape (tuple): Shape of image.
-    """
-
-    if block_size is None:
-        raise ValueError("block_size must be specified")
-
-    patcher = patching.Patcher(patch_shape)
-
-    img = dct.batch_dct(img.unsqueeze(0),device=img.device,block_size=block_size,pad=pad).squeeze(0)
-    #print('dct image shape: ',img.shape)
-    
-
-    patched, data_shape = patcher.patch(img) 
-
-
-    """
-        Get the coordinates for the entire image.
-        #patch it 
-        #fill the centroids of each patch with nonzero.
-        unpatch again and get non zero indices -> they point to centroid.
-    """
-    
-    if centroid:
-        coordinates = torch.zeros(img.shape[1:])
-        
-        patch_coord,shape = patcher.patch(coordinates.unsqueeze(0))
-        patch_coord = patch_coord.squeeze()
-        
-        for k in range(len(patch_coord)):
-            patch_coord[k][patch_shape[0]//2,patch_shape[1]//2] = 1
-        
-        unpatched_coordinates =  patcher.unpatch(patch_coord.unsqueeze(1),shape).squeeze()
-        coordinates = unpatched_coordinates.nonzero(as_tuple=False).float()
-    
-        #Standard transforms
-        coordinates = coordinates / (img.shape[1] - 1) - 0.5
-        coordinates *= 2
-
-    else:
-        #give unique ID to each patch.
-        coordinates = torch.arange(patched.shape[0]).float()
-        #positional encoding ?? NO.
-        breakpoint()
-        coordinates = coordinates / (img.shape[1] - 1) - 0.5
-        # Convert to range [-1, 1]
-        coordinates *= 2
-        # Convert image to a tensor of features of shape (num_points, channels)
-
-    return coordinates, patched,data_shape
-
-
-
-def to_coordinates_and_features_DCT(img,ch_norm=False,block_size=8,pad=True):
-    """Converts an image to a set of coordinates and features.
-
-    Args:
-        img (torch.Tensor): Shape (channels, height, width).
-    """
-    coordinates = torch.ones(img.shape[1:]).nonzero(as_tuple=False).float()
-    coordinates = coordinates / (img.shape[1] - 1) - 0.5	# Convert to range [-1, 1]
-    coordinates *= 2
-    
-
-    img = dct.batch_dct(img.unsqueeze(0),device=img.device,block_size=block_size,pad=pad).squeeze(0)
-
-
-    features = img.reshape(img.shape[0], -1).T
-    
-    shape = img.shape
-
-    return coordinates, features,shape
 
 def get_model(cfg_network):
 
@@ -813,25 +649,6 @@ def get_clamped_psnr(img, img_recon):
     return psnr(img, clamp_image(img_recon))
 
 
-
-def get_key_frames(content="playground/og_bunny_nerv.avi"):
-
-    container = av.open(content)
-
-    stream = container.streams.video[0]
-    stream.codec_context.skip_frame = "NONKEY"
-
-    key_frames = []
-
-    for idx,frame in enumerate(container.decode(stream)):
-
-        print('key frame:',frame.pts)
-        # We use `frame.pts` as `frame.index` won't make must sense with the `skip_frame`.
-        key_frames.append(frame.pts)
-    
-    return key_frames
-
-
 def get_cosine_lr(iteration, warmup_steps, max_lr,max_iters):
     if iteration < warmup_steps:
         # warmup phase
@@ -906,107 +723,6 @@ def tensor_to_cv(tensor):
     
     return tensor.squeeze()
 
-
-
-def compress_weights(state,quant_bit,quant_axis,return_reconstructed=False,quant_filter=0,quant_diff=False,device=None):
-    """
-        Compress weights using entropy coding.
-        return_recconstructed: return reconstructed weights, to save time. In some cases we only infer and dump.
-        quant_diff: quantize the difference between the original and reconstructed weights.
-        Quant_filter: make values below this threshold zero.
-    """
-
-    if device is None:
-        device = torch.device("cuda:{}".format(0))
-
-    if type(state) is not StateDictOperator:
-        state = StateDictOperator(state)
-    if quant_filter!=0 and quant_diff:
-        state = state.filter(value=quant_filter).state_dict
-    else:
-        state = state.state_dict
-
-
-    quant_weight_list = []
-    scales = []
-    t_min_vals = []
-    shapes = []
-
-    reconstructed_weights = {}
-
-    for k,v in state.items():
-        large_tf = (v.dim() in {2,4} and 'bias' not in k)
-        quant_v,scale,t_min = quantize_per_tensor(v, quant_bit, quant_axis if large_tf else -1)
-
-        valid_quant_v = quant_v[v!=0] # only include non-zero weights
-        quant_weight_list.append(valid_quant_v.flatten())
-        scales.append(scale.cpu().tolist())
-        t_min_vals.append(t_min.cpu().tolist())
-        shapes.append(tuple(v.shape))
-
-        if return_reconstructed:
-            t_min_vals = [torch.tensor(x).clone() for x in t_min_vals]
-            scales = [torch.tensor(x).clone() for x in scales]
-
-            reconstructed_tensor = t_min_vals[-1].to(device) + scales[-1].to(device) * quant_v
-            reconstructed_weights[k] =  reconstructed_tensor
-
-    cat_param = torch.cat(quant_weight_list)
-    input_code_list = cat_param.tolist()
-    input_code_list = [int(x) for x in input_code_list]
-
-    codec = HuffmanCodec.from_data(input_code_list)
-    encoded = codec.encode(input_code_list)
-
-    info = {}
-    info['encoding'] = encoded
-    info['codec'] = codec
-    info['scales'] = scales
-    info['t_min_vals'] = t_min_vals
-    info['quant_bit'] = quant_bit
-    info['quant_axis'] = quant_axis
-    info['shapes'] = shapes
-
-    if return_reconstructed:
-        return info,reconstructed_weights
-
-    return info
-
-def decompress_weights(compressed_dict,state_keys,device=None):
-    """
-        Pass the dict returned by compress_weights function.
-        state_keys are the keys found in model state_dict.
-    """
-    
-    quant_bit = compressed_dict['quant_bit']
-    scales = compressed_dict['scales']
-    t_min_vals = compressed_dict['t_min_vals']
-    codec = compressed_dict['codec']
-    encoding = compressed_dict['encoding']
-    shapes = compressed_dict['shapes']
-    decoded = codec.decode(encoding)
-
-    t_min_vals = [torch.tensor(x) for x in t_min_vals]
-    scales = [torch.tensor(x) for x in scales]
-
-
-    reconstructed_state = {}
-    start = 0
-
-    for k,key in enumerate(state_keys):
-        #temp = torch.tensor(decoded[start:np.prod(shapes[k])]).reshape(shapes[k])
-        end = np.prod(shapes[k]) + start
-        temp = torch.tensor(decoded[start:end]).reshape(shapes[k])
-        
-        temp = t_min_vals[k] + scales[k] * temp
-
-        if device is not None:
-            temp = temp.to(device)
-        reconstructed_state[key] = temp
-        start = end
-
-    return reconstructed_state	
-
 def save_get_size(obj, filename='temp.pt'):
     """Save object and return its size"""
     torch.save(obj, filename, pickle_protocol=pickle.HIGHEST_PROTOCOL)
@@ -1071,172 +787,3 @@ def interpolate_points(p1, p2,num_interpolate_points=50):
         v = slerp(ratio, p1, p2)
         vectors.append(v)
     return vectors
-
-
-def prompt_to_template(prompt):
-    """
-        Convert prompt to template.
-    """
-    prompt_templates = ['a bad photo of a {}.', 'a photo of many {}.', 'a sculpture of a {}.', 'a photo of the hard to see {}.', 'a low resolution photo of the {}.', 'a rendering of a {}.', 'graffiti of a {}.', 'a bad photo of the {}.', 'a cropped photo of the {}.', 'a tattoo of a {}.', 'the embroidered {}.', 'a photo of a hard to see {}.', 'a bright photo of a {}.', 'a photo of a clean {}.', 'a photo of a dirty {}.', 'a dark photo of the {}.', 'a drawing of a {}.', 'a photo of my {}.', 'the plastic {}.', 'a photo of the cool {}.', 'a close-up photo of a {}.', 'a black and white photo of the {}.', 'a painting of the {}.', 'a painting of a {}.', 'a pixelated photo of the {}.', 'a sculpture of the {}.', 'a bright photo of the {}.', 'a cropped photo of a {}.', 'a plastic {}.', 'a photo of the dirty {}.', 'a jpeg corrupted photo of a {}.', 'a blurry photo of the {}.', 'a photo of the {}.', 'a good photo of the {}.', 'a rendering of the {}.', 'a {} in a video game.', 'a photo of one {}.', 'a doodle of a {}.', 'a close-up photo of the {}.', 'a photo of a {}.', 'the origami {}.', 'the {} in a video game.', 'a sketch of a {}.', 'a doodle of the {}.', 'a origami {}.', 'a low resolution photo of a {}.', 'the toy {}.', 'a rendition of the {}.', 'a photo of the clean {}.', 'a photo of a large {}.', 'a rendition of a {}.', 'a photo of a nice {}.', 'a photo of a weird {}.', 'a blurry photo of a {}.', 'a cartoon {}.', 'art of a {}.', 'a sketch of the {}.', 'a embroidered {}.', 'a pixelated photo of a {}.', 'itap of the {}.', 'a jpeg corrupted photo of the {}.', 'a good photo of a {}.', 'a plushie {}.', 'a photo of the nice {}.', 'a photo of the small {}.', 'a photo of the weird {}.', 'the cartoon {}.', 'art of the {}.', 'a drawing of the {}.', 'a photo of the large {}.', 'a black and white photo of a {}.', 'the plushie {}.', 'a dark photo of a {}.', 'itap of a {}.', 'graffiti of the {}.', 'a toy {}.', 'itap of my {}.', 'a photo of a cool {}.', 'a photo of a small {}.', 'a tattoo of the {}.', 'there is a {} in the scene.', 'there is the {} in the scene.', 'this is a {} in the scene.', 'this is the {} in the scene.', 'this is one {} in the scene.',]
-    texts = [template.format(prompt) for template in prompt_templates] 
-    return texts
-
-def load_clip_model():
-    model, preprocess = clip.load("ViT-B/32", device='cuda')
-    return model, preprocess
-
-def clip_text_features(texts,device='cuda',model=None,preprocess=None):
-    
-    if model is None and preprocess is None:
-        model, preprocess = clip.load("ViT-B/32", device=device)
-    
-    tokenized_texts = clip.tokenize(texts).to(device)
-    with torch.no_grad():
-        text_features = model.encode_text(tokenized_texts).float()
-        
-        if len(texts) > 1:
-            """ From: https://github.com/chongzhou96/MaskCLIP/blob/master/tools/maskclip_utils/prompt_engineering.py """
-            # This might move things around a bit.
-            text_features /= text_features.norm(dim=-1, keepdim=True)
-            text_features = text_features.mean(dim=0)
-            text_features /= text_features.norm()
-
-    return text_features,tokenized_texts
-
-def get_mlp_matrix(state,model_config_path):
-    
-    model_config = OmegaConf.load(model_config_path)
-    num_layers = model_config.network.num_layers
-
-    pos_matrix = []
-    mlp_matrix = []
-
-    for key in state:
-        value = state[key]
-        if ('positional_encoding' in key) and ('0' not in key):
-            pos_matrix.append(value)
-            
-        
-        #remove first and last layer.
-        elif ('linear' in key) and ('0' not in key) and (str(num_layers-1)) not in key:
-                if 'bias' in key:
-                    mlp_matrix.append(value.unsqueeze(0))
-                else:
-                    mlp_matrix.append(value)
-
-    
-    max_size = max(t.shape[1] for t in pos_matrix)
-    padded_pos_tensors = [torch.nn.functional.pad(t, (0, 0, 0, max_size - t.shape[1])) for t in pos_matrix]
-
-    
-    pos_matrix = torch.cat(padded_pos_tensors, dim=0).T    
-    mlp_matrix = torch.cat(mlp_matrix, dim=0).T  #Input dim as channels! 
-    
-    return pos_matrix,mlp_matrix
-
-
-
-if __name__ == '__main__':
-
-    #all tests running. 
-
-    def load_img():
-        import cv2 
-        img = cv2.imread('../../frequency_stuff/UVG/bosphore_1080/f00001.png')
-        img = img / 255.0
-        img = torch.tensor(img).permute(2,0,1).float()
-        return img
-
-    patch_shape = (64,64)
-    data = torch.rand((3, 95, 100))
-    
-    #og_img = torch.rand((3, 104, 104))
-    og_img = load_img()
-
-
-    def test_ch_norm():
-        mean,std = ch_mean_std(og_img)
-        img = (og_img - mean)/std
-        inv_img = inverse_channel_norm(img,mean,std)
-        print(torch.allclose(og_img,inv_img,3))
-
-
-    def test_ch_norm_dct():
-        #test channel norm + DCT
-        og_dct = dct.batch_dct(og_img.unsqueeze(0),device=og_img.device,pad=True).squeeze()
-        dct_mean,dct_std = ch_mean_std(og_dct)
-        coordinates, features,shape = to_coordinates_and_features_DCT(og_img,ch_norm=True,pad=True)
-        rec_dct = features.reshape(og_img.shape[1], og_img.shape[2], 3).permute(2, 0, 1)
-        rec_dct = inverse_channel_norm(rec_dct,dct_mean,dct_std)
-        rec_img = dct.batch_idct(rec_dct.unsqueeze(0),device=og_img.device).squeeze()
-        print(torch.allclose(og_img,rec_img,3))
-
-    def test_dct():
-        #test dct 
-        features = dct.batch_dct(og_img.unsqueeze(0),device=og_img.device,pad=True).squeeze()
-        features = features.reshape(og_img.shape[0], -1).T	
-        
-        features = features.reshape(og_img.shape[1], og_img.shape[2], 3).permute(2, 0, 1)
-        features = dct.batch_idct(features.unsqueeze(0),device=og_img.device).squeeze()
-        print(torch.allclose(og_img,features,3))
-
-
-    def test_dct_patches():
-        block_size = 64
-
-        coordinates, patched,data_shape = to_coordinates_and_features_patches_DCT(og_img,patch_shape,block_size=block_size,pad=True)
-        
-        #unpatch.
-        patcher = patching.Patcher(patch_shape)
-        unpatched_dct = patcher.unpatch(patched,data_shape)
-        #cannot compare with dct. Not same shape. Unpad can be done only after inverse dct.
-        out_size = (og_img.shape[1],og_img.shape[2])
-        unpatched_img = dct.batch_idct(unpatched_dct.unsqueeze(0),device=unpatched_dct.device,block_size=block_size,pad=True,out_size=out_size).squeeze()
-        print('DCT patched features shape:',patched.shape,' DCT coordinates shape:',coordinates.shape)
-        print(torch.allclose(og_img,unpatched_img,3))
-    
-    def test_rgb_patches():
-        print('image shape:',og_img.shape)
-
-        img = pad_input(og_img.unsqueeze(0),patch_shape[0]).squeeze(0)
-        #img = og_img
-        patched_og_shape = img.shape
-
-        coordinates, patched,data_shape = to_coordinates_and_features_patches(img,patch_shape)
-
-        # coordinates, patched,data_shape = to_coordinates_and_features_patches(og_img,patch_shape)
-        print('patched features shape:',patched.shape,' coordinates shape:',coordinates.shape)
-        patcher = patching.Patcher(patch_shape)
-
-        # unpatched_img = patcher.unpatch(patched,og_img.shape[1:])
-        unpatched_img = patcher.unpatch(patched,patched_og_shape[1:])
-
-        out_size = (og_img.shape[1],og_img.shape[2])
-
-        unpatched_img = unpad(unpatched_img,out_shape=out_size)
-        
-
-        print(torch.allclose(og_img,unpatched_img,3))
-        print('unpatched img shape:',unpatched_img.shape)
-        
-
-
-    def test_fourier_features():
-        coordinates, patched,data_shape = to_coordinates_and_features_patches(og_img,patch_shape)
-        x = GaussianFourierFeatureTransform(num_input_channels=2, mapping_size=128, scale=10)(coordinates)
-        print(x.shape)
-
-
-    def test_residual():
-        image_list = sorted(glob.glob('bunny_data/*.png'))
-        res,patch_res = get_residual(image_list,patch_size=64,plot=True,save_path='bunny_meta_data/')
-        #res,patch_res = get_residual(image_list,patch_size=32,plot=True,save_path='temp_32/')
-
-
-    # test_ch_norm()
-    # test_ch_norm_dct()
-    # test_dct()
-    #test_dct_patches()
-    test_rgb_patches()
-    #test_fourier_features()
-    #test_residual()

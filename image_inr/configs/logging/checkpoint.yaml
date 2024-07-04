@@ -6,4 +6,4 @@ checkpoint:
   save_example: 10
   save_every: ${...trainer.eval_every}
 
-  reset_epoch: #used in nirvana trainers.
+  reset_epoch:

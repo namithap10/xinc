@@ -490,27 +490,4 @@ def eval_quantize_per_tensor(t, bit=8):
     best_quant_t = quant_t_list[best_quant_idx]
     best_new_t = new_t_list[best_quant_idx]
 
-    return best_quant_t, best_new_t             
-
-def convert_tensor_annotations_to_numpy(tensor_annotations):
-    annotations = []
-    
-    for tensor_anno in tensor_annotations:
-        annotation = {}
-
-        annotation['id'] = tensor_anno['id'].item()
-        annotation['inst_id'] = tensor_anno['inst_id'].item()
-        annotation['image_id'] = tensor_anno['image_id'].item()
-        annotation['category_id'] = tensor_anno['category_id'].item()
-        annotation['area'] = tensor_anno['area'].item()
-        annotation['iscrowd'] = tensor_anno['iscrowd'].item()
-
-        # Convert 'bbox' back to regular format
-        bbox = [bbox_tensor.item() for bbox_tensor in tensor_anno['bbox']]
-        annotation['bbox'] = bbox
-
-        annotation['binary_mask'] = tensor_anno['binary_mask'].numpy()
-        
-        annotations.append(annotation)
-
-    return annotations
+    return best_quant_t, best_new_t

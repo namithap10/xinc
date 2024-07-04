@@ -1,8 +1,10 @@
-import torch 
-import torch.nn as nn
+import easydict
 import numpy as np
-import math
+import torch
+import torch.nn as nn
+
 from . import model_utils
+
 
 class Sine(nn.Module):
     """Sine activation with scaling.
@@ -111,7 +113,6 @@ class siren(nn.Module):
         return self.net(x)
 
 if __name__ == '__main__':
-    import easydict,time 
     args = easydict.EasyDict({'network':{'layer_size':512,'num_layers':5,'w0':30.0,'w0_initial':30.0,'final_act':None,\
         'batch_size':1,'fourier_mapping':False}})
 

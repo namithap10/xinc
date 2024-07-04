@@ -94,11 +94,8 @@ class HNeRV(nn.Module):
             outputs.append(output.detach())
 
         img_out = OutImg(self.head_layer(output), self.out_bias)
-        #if torch.cuda.is_available():
-        #    torch.cuda.synchronize()
         dec_time = time.time() - dec_start
 
-        #return img_out, embed_list, dec_time
         return downsample_results, stage_results, img_embed, outputs, img_out
 
 

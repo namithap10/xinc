@@ -1,11 +1,5 @@
-import torch 
 import torch.nn as nn
-import numpy as np
-import math
-from pydoc import locate
 
-from . import hash_grid
-#from . import model_utils
 from .layers import positional_encoders
 
 
@@ -30,14 +24,6 @@ class BaseModel(nn.Module):
 				num_freq = pos_encoding_opt.num_frequencies			
 				self.positional_encoding = positional_encoders.PosEncodingNeRF(in_features=self.dim_in,sidelength=sidelength,\
 								fn_samples=None,use_nyquist= True,num_freq=num_freq)
-		
-			elif pos_encoding_type == 'hash_grid':
-				print('Using hash grid encoding')
-				options = self.cfg.network.pos_encoding.hash_grid_encoding
-				self.positional_encoding = hash_grid.MultiResHashGrid(dim = self.dim_in,binarize=options.binarize,\
-								n_levels=options.n_levels,n_features_per_level=options.n_features_per_level,\
-								log2_hashmap_size=options.log2_hashmap_size,base_resolution=options.base_resolution,\
-								finest_resolution=options.finest_resolution)
 			
 			elif pos_encoding_type == 'fourier':
 				self.positional_encoding = positional_encoders.PosEncodingFourier(dim_in = self.dim_in,dim_hidden=self.dim_hidden,\
